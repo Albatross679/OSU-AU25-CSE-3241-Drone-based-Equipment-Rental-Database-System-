@@ -1,0 +1,204 @@
+## Basic Queries
+
+-- 1
+
+SELECT equipment_id, type, manufacturer, year
+FROM Equipment
+WHERE manufacturer = 'Ridgid'
+  AND year > 2023;
+  
+-- 2
+
+SELECT RT.equipment_id, E.type, RT.checkout_date
+FROM Rental_Transaction AS RT
+JOIN Equipment AS E ON RT.equipment_id = E.equipment_id
+WHERE RT.member_id = 923927;
+
+-- 3
+
+SELECT WHD.wrhs_address, D.drone_ID, D.load_capacity
+FROM Drone AS D
+JOIN Warehouse_Houses_Drone AS WHD ON D.drone_id = WHD.drone_id
+WHERE WHD.wrhs_address IN (
+    SELECT wrhs_address
+    FROM Warehouse_Houses_Drone
+    GROUP BY wrhs_address
+    HAVING COUNT(drone_id) <= 2
+)
+ORDER BY WHD.wrhs_address, D.drone_id;
+
+-- 4
+
+SELECT RT.member_id, M.f_name, M.l_name, RT.equipment_id, E.type, DD.miles_flown, RT.checkout_date
+FROM Rental_Transaction AS RT
+JOIN Community_Member AS M ON RT.member_id = M.member_id
+JOIN Equipment AS E ON RT.equipment_id = E.equipment_id
+JOIN Drone_Performs_Delivery AS DD ON RT.rental_ID = DD.rental_id
+WHERE M.wrhs_distance > 15
+  AND DD.drone_id = 1012;
+  
+-- 5
+
+SELECT COUNT(DISTINCT DR.drone_id) AS Unique_Drones
+FROM Drone_Performs_Return AS DR
+JOIN Rental_Transaction AS RT ON DR.rental_id = RT.rental_id
+JOIN Community_Member AS M ON RT.member_id = M.member_id
+WHERE M.mbr_address LIKE '%1757 3rd St%';
+
+SELECT *
+FROM Community_Member
+WHERE mbr_address LIKE '%3rd%';
+
+-- 6
+
+SELECT M.member_id, M.f_name, M.l_name, COUNT(R.rental_id) AS Rentals
+FROM Community_Member AS M
+JOIN Rental_Transaction AS R ON R.member_id = M.member_id
+GROUP BY R.member_id
+ORDER BY COUNT(R.rental_id) DESC
+LIMIT 1;
+
+-- 7
+
+SELECT E.type,
+       SUM(P.quantity) AS Total_Quantity,
+       SUM(P.value) AS Total_Value,
+       AVG(E.weight) AS Average_Weight
+FROM Equipment AS E
+JOIN Purchase_Order AS P ON E.order_num = P.order_num
+WHERE P.actual_arrive_date > DATE('now', '-6 months')  -- or a fixed date like '2024-05-05'
+GROUP BY E.type;
+
+## Interesting Queries
+
+-- 1
+
+SELECT manufacturer, AVG(load_capacity) AS Avg_Load_Capacity
+FROM Drone
+GROUP BY manufacturer;
+
+-- 2
+
+SELECT RT.rental_ID, E.type, RT.checkout_date, M.f_name, M.l_name
+FROM Rental_Transaction AS RT
+JOIN Equipment AS E ON RT.equipment_id = E.equipment_id
+JOIN Community_Member AS M ON RT.member_id = M.member_id
+WHERE RT.return_date IS NULL;
+
+-- 3
+
+SELECT W.wrhs_address, SUM(PO.value) AS Total_Value_of_Equipment
+FROM Warehouse AS W
+JOIN Equipment AS E ON W.wrhs_address = E.wrhs_address
+JOIN Purchase_Order AS PO ON E.order_num = PO.order_num
+GROUP BY W.wrhs_address;
+
+## Advanced Queries
+
+j. Provide a list of member names, along with the total combined amount of all items they have rented
+out.
+
+SELECT CM.member_ID, CM.F_name || ' ' || CM.L_name AS member_name, SUM(RT.Rental_fee) AS total_amount_rented
+FROM Community_Member AS CM
+JOIN Rental_Transaction AS RT ON CM.member_ID = RT.member_ID
+GROUP BY CM.member_ID, member_name;
+
+
+k. Provide a list of member names and email addresses for members who have rented more equipment
+than the average member.
+
+WITH rental_counts AS (
+SELECT member_ID, COUNT(*) AS num_rented
+FROM Rental_Transaction
+GROUP BY member_ID),avg_rent AS (
+    SELECT AVG(num_rented) AS avg_rented FROM rental_counts
+)
+SELECT CM.member_ID, CM.F_name || ' ' || CM.L_name AS member_name, CM.Email,R.num_rented
+FROM rental_counts AS R
+JOIN avg_rent AS A
+JOIN Community_Member AS CM ON CM.member_ID = R.member_ID
+WHERE R.num_rented > A.avg_rented;
+
+
+l. Provide a list of the equipment in the database and associated total copies rented to members, sorted
+from the equipment that has been rented the most to the equipment that has been rented the least.
+
+SELECT E.equipment_ID, E.Manufacturer, COUNT(RT.equipment_ID) AS total_times_rented
+FROM Equipment AS E
+LEFT JOIN Rental_Transaction AS RT ON E.equipment_ID = RT.equipment_ID
+GROUP BY E.equipment_ID, E.Manufacturer
+ORDER BY total_times_rented DESC;
+
+
+m. Provide a list of the drones in the database and the total number of miles flown, sorted from the ones
+that have been delivered the highest number of items to the ones delivered the lowest.
+
+SELECT D.drone_ID, D.manufacturer, SUM(DD.miles_flown) AS total_miles_flown
+FROM Drone AS D
+JOIN Drone_Performs_Delivery AS DD ON D.drone_ID = DD.drone_ID
+GROUP BY D.drone_ID, D.manufacturer
+ORDER BY total_miles_flown DESC;
+
+n. Find the most popular manufacturer in the database (i.e. the one who has had the most rented items)
+
+SELECT Manufacturer
+FROM (
+    SELECT E.Manufacturer, COUNT(RT.equipment_ID) AS rented_count
+    FROM Equipment AS E
+    JOIN Rental_Transaction AS RT ON E.equipment_ID = RT.equipment_ID
+    GROUP BY E.Manufacturer
+    ORDER BY rented_count DESC
+)
+LIMIT 1;
+
+
+o. Find the most used items in the database, use the rented running time of the item to calculate and
+provide also the number of times the item has been rented out. The output should be ordered from the
+highest running rented time to the lowest.
+
+SELECT D.drone_ID AS equipment_ID, 
+       D.manufacturer, 
+       SUM(DD.miles_flown) AS total_usage_miles, 
+       COUNT(DD.rental_id) AS times_used
+FROM Drone AS D
+JOIN Drone_Performs_Delivery AS DD ON D.drone_ID = DD.drone_ID
+GROUP BY D.drone_ID, D.manufacturer
+ORDER BY total_usage_miles DESC;
+
+
+p. Provide the names and phone numbers of members who have rented out anything by the most
+demanded equipment in the database.
+
+WITH equip_counts AS (
+    SELECT equipment_ID, COUNT(*) AS rental_count
+    FROM Rental_Transaction
+    GROUP BY equipment_ID
+),
+most_demand AS (
+    SELECT equipment_ID
+    FROM equip_counts
+    WHERE rental_count = (SELECT MAX(rental_count) FROM equip_counts)
+)
+SELECT DISTINCT CM.member_ID, CM.F_name || ' ' || CM.L_name AS member_name, CM.Phone
+FROM Rental_Transaction AS RT
+JOIN most_demand AS MD ON RT.equipment_ID = MD.equipment_ID
+JOIN Community_Member AS CM ON RT.member_ID = CM.member_ID;
+
+
+q. Provide a list of manufacturers who provided the items rented out by members who have rented more
+items than the average customer.
+
+WITH rental_counts AS (
+    SELECT member_id, COUNT(*) AS num_rented
+    FROM Rental_Transaction
+    GROUP BY member_id
+),
+above_avg AS (
+    SELECT member_id
+    FROM rental_counts
+    WHERE num_rented > (SELECT AVG(num_rented) FROM rental_counts)
+)
+SELECT DISTINCT E.manufacturer
+FROM Rental_Transaction AS RT
+JOIN above_avg AS A ON A.member_id = RT.member_id
+JOIN Equipment AS E ON E.equipment_id = RT.equipment_id;
